@@ -1,17 +1,3 @@
-// #include "wifi_manager.h"
-// #include "tb_client.h"
-// #include "freertos/FreeRTOS.h"
-// #include "freertos/task.h"
-
-// void app_main(void)
-// {
-//     wifi_init();
-
-//     vTaskDelay(pdMS_TO_TICKS(5000)); // wait for connection
-
-//     tb_init();
-// }
-
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -38,7 +24,9 @@ void app_main(void)
 
     wifi_init();
 
-    vTaskDelay(pdMS_TO_TICKS(5000));
+    while (!wifi_connected) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
 
     tb_init();
 

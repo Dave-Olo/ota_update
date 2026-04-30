@@ -2,9 +2,33 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "nvs_flash.h"
+#include "esp_log.h"
+#include "esp_netif.h"
 
-#define WIFI_SSID "HUAWEI-2.4G-ATB9"
-#define WIFI_PASS "e44mcJF2"
+#define WIFI_SSID "MTN-2.4G-30104C"
+#define WIFI_PASS "3D9BBB62"
+
+static const char *TAG = "WIFI";
+
+bool wifi_connected = false;
+
+static void wifi_event_handler(void* arg, esp_event_base_t event_base,
+                              int32_t event_id, void* event_data)
+{
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+        esp_wifi_connect();
+    } 
+    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        ESP_LOGI(TAG, "Retrying WiFi...");
+        wifi_connected = false;
+        esp_wifi_connect();
+    } 
+    else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        ESP_LOGI(TAG, "WiFi Connected!");
+        wifi_connected = true;
+    }
+}
+
 
 void wifi_init(void)
 {
@@ -15,6 +39,21 @@ void wifi_init(void)
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_wifi_init(&cfg);
+
+
+    esp_event_handler_instance_register(WIFI_EVENT,
+                                        ESP_EVENT_ANY_ID,
+                                        &wifi_event_handler,
+                                        NULL,
+                                        NULL);
+    
+    esp_event_handler_instance_register(IP_EVENT,
+                                        IP_EVENT_STA_GOT_IP,
+                                        &wifi_event_handler,
+                                        NULL,
+                                        NULL);
+
+        
 
     wifi_config_t wifi_config = {
         .sta = {
