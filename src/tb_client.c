@@ -12,7 +12,6 @@ static const char *TAG = "TB_CLIENT";
 
 esp_mqtt_client_handle_t client = NULL;
 
-// Report current firmware version when connected
 static void report_current_firmware(void)
 {
     const char *msg = "{\"current_fw_title\":\"firmware2\",\"current_fw_version\":\"1.0.0\",\"fw_state\":\"UPDATED\"}";
@@ -33,28 +32,31 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
             break;
 
         case MQTT_EVENT_DATA:
-            ESP_LOGI(TAG, "Received on topic: %.*s", event->topic_len, event->topic);
+            ESP_LOGI(TAG, "=== RAW DATA RECEIVED ===");
+            ESP_LOGI(TAG, "Topic: %.*s", event->topic_len, event->topic);
+            ESP_LOGI(TAG, "Data : %.*s", event->data_len, event->data);
 
             if (strstr(event->topic, "attributes") != NULL) {
                 cJSON *root = cJSON_ParseWithLength(event->data, event->data_len);
-                if (root == NULL) break;
-
-                cJSON *fw_url = cJSON_GetObjectItem(root, "fw_url");
-                if (cJSON_IsString(fw_url) && fw_url->valuestring != NULL) {
-                    ESP_LOGI(TAG, "=== OTA UPDATE DETECTED ===");
-                    ESP_LOGI(TAG, "URL: %s", fw_url->valuestring);
-
-                    esp_mqtt_client_publish(client, "v1/devices/me/telemetry", 
-                                          "{\"fw_state\":\"DOWNLOADING\"}", 0, 1, 0);
-
-                    ota_start(fw_url->valuestring);
+                if (root) {
+                    cJSON *item = NULL;
+                    cJSON_ArrayForEach(item, root) {
+                        if (cJSON_IsString(item)) {
+                            ESP_LOGI(TAG, "Key: %s = %s", item->string, item->valuestring);
+                            
+                            if (strcmp(item->string, "fw_url") == 0) {
+                                ESP_LOGI(TAG, ">>> OTA URL FOUND: %s", item->valuestring);
+                                esp_mqtt_client_publish(client, "v1/devices/me/telemetry", 
+                                                      "{\"fw_state\":\"DOWNLOADING\"}", 0, 1, 0);
+                                ota_start(item->valuestring);
+                            }
+                        }
+                    }
+                    cJSON_Delete(root);
+                } else {
+                    ESP_LOGW(TAG, "Failed to parse JSON");
                 }
-                cJSON_Delete(root);
             }
-            break;
-
-        case MQTT_EVENT_DISCONNECTED:
-            ESP_LOGW(TAG, "Disconnected from ThingsBoard");
             break;
 
         default:
