@@ -145,6 +145,88 @@
 //     esp_mqtt_client_start(client);
 // }
 
+// #include "tb_client.h"
+// #include "ota_manager.h"
+// #include "mqtt_client.h"
+// #include "cJSON.h"
+// #include "esp_log.h"
+// #include <string.h>
+
+// #define TB_TOKEN "5itnsdtlveutd8yn4sdl"
+// #define TB_HOST  "mqtt.thingsboard.cloud"
+
+// static const char *TAG = "TB_CLIENT";
+// esp_mqtt_client_handle_t client = NULL;
+
+// static void report_current_firmware(void)
+// {
+//     const char *msg = "{\"current_fw_title\":\"firmware2\",\"current_fw_version\":\"1.0.0\",\"fw_state\":\"UPDATED\"}";
+//     esp_mqtt_client_publish(client, "v1/devices/me/attributes", msg, 0, 1, 0);
+// }
+
+// static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
+//                                int32_t event_id, void *event_data)
+// {
+//     esp_mqtt_event_handle_t event = event_data;
+
+//     switch (event_id) {
+//         case MQTT_EVENT_CONNECTED:
+//             ESP_LOGI(TAG, "Connected to ThingsBoard");
+//             esp_mqtt_client_subscribe(client, "v1/devices/me/attributes", 1);
+//             report_current_firmware();
+//             break;
+
+//         case MQTT_EVENT_DATA:
+//             ESP_LOGI(TAG, "Received Topic: %.*s", event->topic_len, event->topic);
+//             ESP_LOGI(TAG, "Data: %.*s", event->data_len, event->data);
+
+//             if (strstr(event->topic, "attributes") != NULL) {
+//                 cJSON *root = cJSON_ParseWithLength(event->data, event->data_len);
+//                 if (root) {
+//                     // Case 1: Direct fw_url
+//                     cJSON *fw_url = cJSON_GetObjectItem(root, "fw_url");
+//                     if (cJSON_IsString(fw_url) && fw_url->valuestring) {
+//                         ESP_LOGI(TAG, ">>> OTA URL FOUND: %s", fw_url->valuestring);
+//                         ota_start(fw_url->valuestring);
+//                         cJSON_Delete(root);
+//                         return;
+//                     }
+
+//                     // Case 2: Nested in object
+//                     cJSON *item = root->child;
+//                     while (item) {
+//                         if (strcmp(item->string, "fw_url") == 0 && cJSON_IsString(item)) {
+//                             ESP_LOGI(TAG, ">>> OTA URL FOUND: %s", item->valuestring);
+//                             ota_start(item->valuestring);
+//                             break;
+//                         }
+//                         item = item->next;
+//                     }
+//                     cJSON_Delete(root);
+//                 }
+//             }
+//             break;
+
+//         default:
+//             break;
+//     }
+// }
+
+// void tb_init(void)
+// {
+//     char uri[128];
+//     sprintf(uri, "mqtt://%s", TB_HOST);
+
+//     esp_mqtt_client_config_t mqtt_cfg = {
+//         .broker.address.uri = uri,
+//         .credentials.username = TB_TOKEN,
+//     };
+
+//     client = esp_mqtt_client_init(&mqtt_cfg);
+//     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
+//     esp_mqtt_client_start(client);
+// }
+
 #include "tb_client.h"
 #include "ota_manager.h"
 #include "mqtt_client.h"
@@ -162,6 +244,7 @@ static void report_current_firmware(void)
 {
     const char *msg = "{\"current_fw_title\":\"firmware2\",\"current_fw_version\":\"1.0.0\",\"fw_state\":\"UPDATED\"}";
     esp_mqtt_client_publish(client, "v1/devices/me/attributes", msg, 0, 1, 0);
+    ESP_LOGI(TAG, "Reported current firmware");
 }
 
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
@@ -171,40 +254,44 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
 
     switch (event_id) {
         case MQTT_EVENT_CONNECTED:
-            ESP_LOGI(TAG, "Connected to ThingsBoard");
+            ESP_LOGI(TAG, "✅ Connected to ThingsBoard");
             esp_mqtt_client_subscribe(client, "v1/devices/me/attributes", 1);
             report_current_firmware();
             break;
 
         case MQTT_EVENT_DATA:
-            ESP_LOGI(TAG, "Received Topic: %.*s", event->topic_len, event->topic);
-            ESP_LOGI(TAG, "Data: %.*s", event->data_len, event->data);
+            ESP_LOGI(TAG, "📥 RECEIVED - Topic: %.*s", event->topic_len, event->topic);
+            ESP_LOGI(TAG, "📦 Payload: %.*s", event->data_len, event->data);
 
             if (strstr(event->topic, "attributes") != NULL) {
+                ESP_LOGI(TAG, "🔍 Processing Shared Attributes...");
+
                 cJSON *root = cJSON_ParseWithLength(event->data, event->data_len);
                 if (root) {
-                    // Case 1: Direct fw_url
+                    // Try multiple ways to find fw_url
                     cJSON *fw_url = cJSON_GetObjectItem(root, "fw_url");
                     if (cJSON_IsString(fw_url) && fw_url->valuestring) {
-                        ESP_LOGI(TAG, ">>> OTA URL FOUND: %s", fw_url->valuestring);
+                        ESP_LOGI(TAG, "🎯 OTA URL FOUND: %s", fw_url->valuestring);
                         ota_start(fw_url->valuestring);
-                        cJSON_Delete(root);
-                        return;
-                    }
-
-                    // Case 2: Nested in object
-                    cJSON *item = root->child;
-                    while (item) {
-                        if (strcmp(item->string, "fw_url") == 0 && cJSON_IsString(item)) {
-                            ESP_LOGI(TAG, ">>> OTA URL FOUND: %s", item->valuestring);
-                            ota_start(item->valuestring);
-                            break;
+                    } else {
+                        // Try iterating through all keys
+                        cJSON *item = NULL;
+                        cJSON_ArrayForEach(item, root) {
+                            if (item->string && strcmp(item->string, "fw_url") == 0 && cJSON_IsString(item)) {
+                                ESP_LOGI(TAG, "🎯 OTA URL FOUND (loop): %s", item->valuestring);
+                                ota_start(item->valuestring);
+                            }
                         }
-                        item = item->next;
                     }
                     cJSON_Delete(root);
+                } else {
+                    ESP_LOGW(TAG, "Failed to parse JSON");
                 }
             }
+            break;
+
+        case MQTT_EVENT_DISCONNECTED:
+            ESP_LOGW(TAG, "Disconnected from ThingsBoard");
             break;
 
         default:
@@ -225,4 +312,6 @@ void tb_init(void)
     client = esp_mqtt_client_init(&mqtt_cfg);
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(client);
+
+    ESP_LOGI(TAG, "MQTT Client started");
 }
